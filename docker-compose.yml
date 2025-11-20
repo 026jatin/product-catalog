@@ -1,0 +1,108 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: product-catalog-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_123
+      MYSQL_DATABASE: product_catalog
+      MYSQL_USER: product_user
+      MYSQL_PASSWORD: secure_password_123
+      MYSQL_ROOT_HOST: '%'
+    volumes:
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - mysql_data_new:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    networks:
+      - product-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: product-catalog-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.name=product-cluster
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - product-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health?wait_for_status=yellow || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.10.0
+    container_name: product-catalog-logstash
+    volumes:
+      - ./docker/logstash/pipeline.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./docker/logstash/mysql-connector-java-8.0.33.jar:/usr/share/logstash/mysql-connector-java-8.0.33.jar
+    environment:
+      - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
+    ports:
+      - "9600:9600"
+    networks:
+      - product-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    command: logstash -f /usr/share/logstash/pipeline/logstash.conf
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9600/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: product-catalog-app
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/product_catalog?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: product_user
+      SPRING_DATASOURCE_PASSWORD: secure_password_123
+      SPRING_ELASTICSEARCH_REST_URIS: http://product-catalog-elasticsearch:9200
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+    ports:
+      - "8080:8080"
+    networks:
+      - product-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      logstash:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  product-network:
+    driver: bridge
+
+volumes:
+  mysql_data_new:
+    driver: local
+  elasticsearch_data:
+    driver: local

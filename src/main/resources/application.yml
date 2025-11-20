@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: product-catalog
+
+  datasource:
+    url: jdbc:mysql://mysql:3306/product_catalog?useUnicode=true&characterEncoding=utf8
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:Greenlight*101}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 10
+          fetch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+
+  elasticsearch:
+    rest:
+      uris: ${SPRING_ELASTICSEARCH_REST_URIS:http://product-catalog-elasticsearch:9200}
+      connection-timeout: 10000   # increased timeout (10s)
+      socket-timeout: 30000       # increased read timeout (30s)
+      max-retries: 5
+
+management:
+  health:
+    elasticsearch:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      simple:
+        enabled: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    min-response-size: 1024
+
+logging:
+  level:
+    root: INFO
+    com.productcatalog: DEBUG
+    org.springframework.web: INFO
+    org.springframework.data: INFO
+
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/application.log
+    max-size: 10MB
+    max-history: 10
