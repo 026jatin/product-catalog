@@ -7,18 +7,14 @@ COPY src ./src
 
 RUN mvn clean package -DskipTests -q
 
-# ============= Runtime Stage =============
 FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
-# Install curl for health checks
 RUN apk add --no-cache curl
 
-# Copy jar from builder
 COPY --from=builder /build/target/*.jar app.jar
 
-# Create non-root user
 RUN addgroup -g 1000 appuser && \
     adduser -D -u 1000 -G appuser appuser && \
     chown -R appuser:appuser /app

@@ -10,6 +10,7 @@ import com.productcatalog.exception.ProductNotFoundException;
 import com.productcatalog.model.Product;
 import com.productcatalog.repository.ProductRepository;
 import com.productcatalog.repository.ProductSearchRepository;
+import com.productcatalog.util.SearchResponseUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
@@ -24,9 +25,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders;
 
 import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -40,6 +39,9 @@ public class ProductService {
 
     @Autowired
     private ElasticsearchOperations elasticsearchOperations;
+    
+    @Autowired
+    private SearchResponseUtil searchResponseUtil;
 
     @Transactional
     public ProductResponse createProduct(CreateProductRequest request) {
@@ -66,32 +68,20 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public SearchResponse searchProducts(String query, int limit, int offset) {
-        log.info("Search request received: query='{}', limit={}, offset={}", query, limit, offset);
-        long startTime = System.currentTimeMillis();
 
-        if (query == null || query.trim().isEmpty()) {
-            return SearchResponse.builder()
-                    .results(Collections.emptyList())
-                    .totalHits(0)
-                    .executionTimeMs(0)
-                    .message("Query cannot be empty")
-                    .build();
+        long start = System.currentTimeMillis();
+        log.info("Search request: query='{}', limit={}, offset={}", query, limit, offset);
+
+        if (isEmpty(query)) {
+            return searchResponseUtil.emptyResponse("Query cannot be empty", 0, limit);
         }
 
-        if (limit < 1 || limit > 100) {
-            log.warn("Invalid limit '{}', using default value 20", limit);
-            limit = 20;
-        }
-
-        if (offset < 0) {
-            log.warn("Invalid offset '{}', using default value 0", offset);
-            offset = 0;
-        }
+        limit = validateLimit(limit);
+        offset = validateOffset(offset);
 
         int pageNumber = offset / limit;
 
         try {
-
             Query multiMatchQuery = QueryBuilders.multiMatch(m -> m
                     .fields("name^2", "description", "category")
                     .query(query)
@@ -106,38 +96,29 @@ public class ProductService {
                     .withPageable(pageable)
                     .build();
 
-            SearchHits<Product> searchHits = elasticsearchOperations.search(nativeQuery, Product.class);
+            SearchHits<Product> searchHits =
+                    elasticsearchOperations.search(nativeQuery, Product.class);
 
-
-            List<ProductResponse> results = searchHits.getSearchHits()
+            long totalHits = searchHits.getTotalHits();
+            List<ProductResponse> data = searchHits.getSearchHits()
                     .stream()
                     .map(hit -> mapToResponse(hit.getContent()))
-                    .collect(Collectors.toList());
+                    .toList();
 
-            long executionTime = System.currentTimeMillis() - startTime;
+            if (data.isEmpty()) {
+                return searchResponseUtil.emptyResponse("No products found", pageNumber, limit);
+            }
 
-            log.info("Search completed: {} results in {} ms", results.size(), executionTime);
+            long execTime = System.currentTimeMillis() - start;
 
-
-            return SearchResponse.builder()
-                    .results(results)
-                    .totalHits(searchHits.getTotalHits())
-                    .executionTimeMs(executionTime)
-                    .message("Search successful")
-                    .build();
+            return searchResponseUtil.successResponse(data, totalHits, pageNumber, limit, execTime);
 
         } catch (Exception e) {
-
             log.error("Search failed for query '{}'", query, e);
-
-            return SearchResponse.builder()
-                    .results(Collections.emptyList())
-                    .totalHits(0)
-                    .executionTimeMs(0)
-                    .message("Search failed: " + e.getMessage())
-                    .build();
+            return searchResponseUtil.emptyResponse("Search failed: " + e.getMessage(), 0, limit);
         }
     }
+
 
     @Transactional
     public void softDeleteProduct(Long id) {
@@ -178,6 +159,26 @@ public class ProductService {
                 .createdAt(product.getCreatedAt())
                 .updatedAt(product.getUpdatedAt())
                 .build();
+    }
+
+    private boolean isEmpty(String query) {
+        return query == null || query.trim().isEmpty();
+    }
+
+    private int validateLimit(int limit) {
+        if (limit < 1 || limit > 100) {
+            log.warn("Invalid limit '{}', using default 20", limit);
+            return 20;
+        }
+        return limit;
+    }
+
+    private int validateOffset(int offset) {
+        if (offset < 0) {
+            log.warn("Invalid offset '{}', using default 0", offset);
+            return 0;
+        }
+        return offset;
     }
 }
 
