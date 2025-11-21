@@ -30,7 +30,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@Transactional
 public class ProductService {
 
     @Autowired
@@ -42,6 +41,7 @@ public class ProductService {
     @Autowired
     private ElasticsearchOperations elasticsearchOperations;
 
+    @Transactional
     public ProductResponse createProduct(CreateProductRequest request) {
         log.info("Creating product with SKU: {}", request.getSku());
 
@@ -139,7 +139,7 @@ public class ProductService {
         }
     }
 
-
+    @Transactional
     public void softDeleteProduct(Long id) {
         log.info("Soft deleting product with ID: {}", id);
 

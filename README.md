@@ -25,6 +25,15 @@ Search: API → Elasticsearch (with MySQL fallback)
 Retrieve: API → MySQL
 Delete: API → MySQL (soft delete)
 
+# Logstash Sync Strategy (MySQL → Elasticsearch)
+Logstash runs as a background synchronization service to keep Elasticsearch updated with the latest product records from MySQL.
+
+# How the Sync Works
+Logstash uses a JDBC input plugin to connect to MySQL.
+It runs a query every 10 seconds (configurable using schedule => "*/10 * * * * *").
+The query fetches all active products (is_deleted = 0).
+Each row is converted into a JSON document and pushed into Elasticsearch.JDBC Input: Runs every 10 seconds using a scheduler.
+
 ##  Prerequisites
 
 You only need:
