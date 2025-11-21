@@ -11,6 +11,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Slf4j
 @RestController
 @RequestMapping("/products")
@@ -29,22 +32,13 @@ public class ProductController {
 
     @GetMapping("/search")
     public ResponseEntity<SearchResponse> searchProducts(
-            @RequestParam(value = "q", required = true) String query,
-            @RequestParam(value = "limit", defaultValue = "20") int limit,
-            @RequestParam(value = "offset", defaultValue = "0") int offset) {
+            @RequestParam String q,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "0") int offset) {
 
-        log.info("search Query: {}", query);
-
-        if (limit < 1 || limit > 100) {
-            limit = 20;
-        }
-        if (offset < 0) {
-            offset = 0;
-        }
-
-        SearchResponse response = productService.searchProducts(query, limit, offset);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(productService.searchProducts(q, limit, offset));
     }
+
 
     @GetMapping("/{id}")
     public ResponseEntity<ProductResponse> getProduct(@PathVariable Long id) {
@@ -54,9 +48,13 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
-        log.info("{} - Soft deleting product", id);
+    public ResponseEntity<Map<String, String>> deleteProduct(@PathVariable Long id) {
+
         productService.softDeleteProduct(id);
-        return ResponseEntity.noContent().build();
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Product deleted successfully");
+
+        return ResponseEntity.ok(response);
     }
 }

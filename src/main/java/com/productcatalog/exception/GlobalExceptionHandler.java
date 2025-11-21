@@ -85,4 +85,20 @@ public class GlobalExceptionHandler {
 
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+
+    @ExceptionHandler(ProductAlreadyDeletedException.class)
+    public ResponseEntity<ErrorResponse> handleProductAlreadyDeleted(
+            ProductAlreadyDeletedException ex, WebRequest request) {
+
+        log.warn("Attempt to delete already deleted product: {}", ex.getMessage());
+
+        ErrorResponse error = ErrorResponse.builder()
+                .status(HttpStatus.GONE.value())
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return new ResponseEntity<>(error, HttpStatus.GONE);
+    }
 }

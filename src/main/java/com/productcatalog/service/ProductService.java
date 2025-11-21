@@ -1,9 +1,11 @@
 package com.productcatalog.service;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
 import com.productcatalog.dto.CreateProductRequest;
 import com.productcatalog.dto.ProductResponse;
 import com.productcatalog.dto.SearchResponse;
 import com.productcatalog.exception.DuplicateSkuException;
+import com.productcatalog.exception.ProductAlreadyDeletedException;
 import com.productcatalog.exception.ProductNotFoundException;
 import com.productcatalog.model.Product;
 import com.productcatalog.repository.ProductRepository;
@@ -22,6 +24,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -63,20 +66,40 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public SearchResponse searchProducts(String query, int limit, int offset) {
-        log.info("Searching products with query: '{}', limit: {}, offset: {}", query, limit, offset);
-
+        log.info("Search request received: query='{}', limit={}, offset={}", query, limit, offset);
         long startTime = System.currentTimeMillis();
 
+        if (query == null || query.trim().isEmpty()) {
+            return SearchResponse.builder()
+                    .results(Collections.emptyList())
+                    .totalHits(0)
+                    .executionTimeMs(0)
+                    .message("Query cannot be empty")
+                    .build();
+        }
+
+        if (limit < 1 || limit > 100) {
+            log.warn("Invalid limit '{}', using default value 20", limit);
+            limit = 20;
+        }
+
+        if (offset < 0) {
+            log.warn("Invalid offset '{}', using default value 0", offset);
+            offset = 0;
+        }
+
+        int pageNumber = offset / limit;
+
         try {
-            // Create fuzzy multi-match query
+
             Query multiMatchQuery = QueryBuilders.multiMatch(m -> m
-                    .fields("name^2", "description")
+                    .fields("name^2", "description", "category")
                     .query(query)
                     .fuzziness("AUTO")
-                    .operator(co.elastic.clients.elasticsearch._types.query_dsl.Operator.Or)
+                    .operator(Operator.Or)
             );
 
-            Pageable pageable = PageRequest.of(offset / limit, limit);
+            Pageable pageable = PageRequest.of(pageNumber, limit);
 
             NativeQuery nativeQuery = NativeQuery.builder()
                     .withQuery(multiMatchQuery)
@@ -85,6 +108,7 @@ public class ProductService {
 
             SearchHits<Product> searchHits = elasticsearchOperations.search(nativeQuery, Product.class);
 
+
             List<ProductResponse> results = searchHits.getSearchHits()
                     .stream()
                     .map(hit -> mapToResponse(hit.getContent()))
@@ -92,19 +116,29 @@ public class ProductService {
 
             long executionTime = System.currentTimeMillis() - startTime;
 
-            log.info("Search completed. Found {} results in {}ms", results.size(), executionTime);
+            log.info("Search completed: {} results in {} ms", results.size(), executionTime);
+
 
             return SearchResponse.builder()
                     .results(results)
                     .totalHits(searchHits.getTotalHits())
                     .executionTimeMs(executionTime)
+                    .message("Search successful")
                     .build();
 
         } catch (Exception e) {
-            log.error("Error searching products", e);
-            throw new RuntimeException("Search failed: " + e.getMessage(), e);
+
+            log.error("Search failed for query '{}'", query, e);
+
+            return SearchResponse.builder()
+                    .results(Collections.emptyList())
+                    .totalHits(0)
+                    .executionTimeMs(0)
+                    .message("Search failed: " + e.getMessage())
+                    .build();
         }
     }
+
 
     public void softDeleteProduct(Long id) {
         log.info("Soft deleting product with ID: {}", id);
@@ -112,10 +146,15 @@ public class ProductService {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ProductNotFoundException("Product with ID " + id + " not found"));
 
+        if (product.getDeletedAt() != null) {
+            log.warn("Product {} is already deleted", id);
+            throw new ProductAlreadyDeletedException("Product already deleted");
+        }
+
         product.setDeletedAt(LocalDateTime.now());
         productRepository.save(product);
 
-        log.info("Product soft deleted successfully");
+        log.info("Product {} soft deleted successfully", id);
     }
 
     @Transactional(readOnly = true)

@@ -15,4 +15,5 @@ public class SearchResponse {
     private List<ProductResponse> results;
     private long totalHits;
     private long executionTimeMs;
+    private String message;
 }
